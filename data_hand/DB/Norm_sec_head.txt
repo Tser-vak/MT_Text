@@ -1,0 +1,22 @@
+
+
+fam/sochx [FAMILY HISTORY/SOCIAL HISTORY]
+genhx [HISTORY of PRESENT ILLNESS]
+pastmedicalhx [PAST MEDICAL HISTORY]
+cc [CHIEF COMPLAINT]
+pastsurgical [PAST SURGICAL HISTORY]
+allergy
+ros [REVIEW OF SYSTEMS]
+medications
+assessment
+exam
+diagnosis
+disposition
+plan
+edcourse [EMERGENCY DEPARTMENT COURSE]
+immunizations
+imaging
+gynhx [GYNECOLOGIC HISTORY]
+procedures
+other_history
+labs
