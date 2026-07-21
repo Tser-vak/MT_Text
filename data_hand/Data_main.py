@@ -2,12 +2,22 @@
 
 Only column selection + MTS section-header expansion + dead-section drop.
 No text cleaning, no speaker normalization, no JSONL schema (later steps).
+
+STALE OUTPUT -- processed/*.csv currently holds the OLD two-role speaker
+normalization (bare "Doctor"/"Patient", with Guest_family/Guest_clinician/
+patient_guest left raw). data_tools.SPEAKER_TAGS now emits four roles with a
+colon. To bring the CSVs back in sync, in this order:
+  1. Fill the db_tools/dedup.py::drop_collisions hole -- run() calls it via
+     _dedup_mts() and raises NotImplementedError until it exists.
+  2. Re-run this script. Check the report_unmapped() line reads "all mapped".
+  3. Re-run db_tools/measure_lengths.py -- the tag text changed, so token
+     counts (and the max_length >= 4608 cap) need re-measuring.
 """
 from pathlib import Path
 
 import pandas as pd
 
-from db_tools.data_tools import load_section_map, prep_aci, prep_mts
+from db_tools.data_tools import load_section_map, prep_aci, prep_mts, report_unmapped
 from db_tools.dedup import TextDeduplicator
 
 DB_DIR = Path(__file__).parent / "DB"
@@ -48,6 +58,7 @@ def run() -> None:
             cleaned.to_csv(f, index=False)
         print(f"{src_rel} -> {out_path.name}  ({len(cleaned)} rows)")
 
+    report_unmapped()
     _dedup_mts()
 
 
