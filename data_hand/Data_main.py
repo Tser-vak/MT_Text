@@ -1,17 +1,13 @@
 """Day-3 Stage-A data prep: raw ACI-bench / MTS-Dialog CSVs -> cleaned per-split CSVs.
 
-Only column selection + MTS section-header expansion + dead-section drop.
-No text cleaning, no speaker normalization, no JSONL schema (later steps).
+Column selection + MTS section-header expansion + dead-section drop + text
+cleaning + speaker normalization + train/held-out dedup. No JSONL schema --
+prompts are built at train time via prompts.build (amendment 2026-07-20 #3).
 
-STALE OUTPUT -- processed/*.csv currently holds the OLD two-role speaker
-normalization (bare "Doctor"/"Patient", with Guest_family/Guest_clinician/
-patient_guest left raw). data_tools.SPEAKER_TAGS now emits four roles with a
-colon. To bring the CSVs back in sync, in this order:
-  1. Fill the db_tools/dedup.py::drop_collisions hole -- run() calls it via
-     _dedup_mts() and raises NotImplementedError until it exists.
-  2. Re-run this script. Check the report_unmapped() line reads "all mapped".
-  3. Re-run db_tools/measure_lengths.py -- the tag text changed, so token
-     counts (and the max_length >= 4608 cap) need re-measuring.
+processed/*.csv is in sync as of 2026-07-23 (four-role speaker normalization,
+report_unmapped() reads "all mapped"). Still pending: re-run
+db_tools/measure_lengths.py -- the tag text changed, so token counts (and the
+max_length >= 4608 cap) need re-measuring on the GCP VM.
 """
 from pathlib import Path
 
@@ -31,6 +27,10 @@ ACI_JOBS = [
     ("valid/aci/valid.csv", "aci_valid.csv"),
     ("testing/aci/clef_taskC_test3.csv", "aci_test.csv"),
 ]
+
+# Dedup sides for _dedup_aci: held-out splits are read-only, the train pool shrinks.
+ACI_KEEP_FILES = ("aci_test.csv", "aci_valid.csv")
+ACI_DROP_FILES = ("aci_train.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv")
 
 MTS_JOBS = [
     ("training/MTS/MTS-Dialog-TrainingSet.csv", "mts_train.csv"),
@@ -60,26 +60,60 @@ def run() -> None:
 
     report_unmapped()
     _dedup_mts()
+    _dedup_aci()
 
 
 def _dedup_mts() -> None:
-    """Post-pass: drop MTS train<->test hash collisions from TEST, never train.
+    """Post-pass: drop MTS train<->test hash collisions from TRAIN, never test.
 
-    The 2 known collisions are an eval-integrity problem (secondary MTS
-    section eval would otherwise partly score on memorized rows), so only
-    mts_test1.csv / mts_test2.csv are rewritten here -- mts_train.csv is
-    read-only in this function.
+    The 2 known collisions are a contamination problem: the fine-tune sees
+    MTS fresh, so removing the overlapping rows from TRAIN prevents the model
+    ever learning a row it will later be scored on, while keeping the test
+    splits byte-identical to the published benchmark. Only mts_train.csv is
+    rewritten here -- mts_test1.csv / mts_test2.csv are read-only.
     """
     dedup = TextDeduplicator()
-    train = pd.read_csv(OUT_DIR / "mts_train.csv")
-    for name in ("mts_test1.csv", "mts_test2.csv"):
-        test_path = OUT_DIR / name
-        test = pd.read_csv(test_path)
-        deduped = dedup.drop_collisions(train, test, ["dialogue", "section_text"])
-        with open(test_path, "w", newline="", encoding="utf-8") as f:
+    cols = ["dialogue", "section_text"]
+    train_path = OUT_DIR / "mts_train.csv"
+    train = pd.read_csv(train_path)
+    test = pd.concat(
+        [pd.read_csv(OUT_DIR / name) for name in ("mts_test1.csv", "mts_test2.csv")],
+        ignore_index=True,
+    )
+    deduped = dedup.drop_collisions(test, train, cols)
+    with open(train_path, "w", newline="", encoding="utf-8") as f:
+        deduped.to_csv(f, index=False)
+    print(f"mts_train.csv: {len(train)} -> {len(deduped)} rows "
+          f"(dropped {len(train) - len(deduped)} train/test collisions)")
+
+
+def _dedup_aci() -> None:
+    """Post-pass: drop ACI held-out<->train-pool hash collisions from the TRAIN pool.
+
+    Same direction as _dedup_mts, for the same reason: aci_test.csv is the frozen
+    clef_taskC_test3 benchmark split and stays byte-identical, so reported numbers
+    stay comparable. aci_valid.csv joins the keep side because it is the held-out
+    full-note validation set used for checkpoint selection (see plan amendment
+    2026-07-21 #5) -- a train row duplicated there inflates the selection signal
+    just as badly as one duplicated in test.
+
+    keep is concatenated (it only ever becomes a set of hashes); the three train
+    files are looped, not concatenated, because each is rewritten in place.
+    """
+    dedup = TextDeduplicator()
+    cols = ["dialogue", "note"]
+    keep = pd.concat(
+        [pd.read_csv(OUT_DIR / name) for name in ACI_KEEP_FILES],
+        ignore_index=True,
+    )
+    for name in ACI_DROP_FILES:
+        path = OUT_DIR / name
+        df = pd.read_csv(path)
+        deduped = dedup.drop_collisions(keep, df, cols)
+        with open(path, "w", newline="", encoding="utf-8") as f:
             deduped.to_csv(f, index=False)
-        print(f"{name}: {len(test)} -> {len(deduped)} rows "
-              f"(dropped {len(test) - len(deduped)} train/test collisions)")
+        print(f"{name}: {len(df)} -> {len(deduped)} rows "
+              f"(dropped {len(df) - len(deduped)} held-out/train collisions)")
 
 
 if __name__ == "__main__":
