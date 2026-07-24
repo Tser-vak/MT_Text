@@ -4,3 +4,6 @@ DB/Dataset_Engineering_Pipeline_Report.docx
 DB/dataset_similarity_cleaning_map.png
 #ENV
 venv/
+.env
+**/.env
+__pycache__/

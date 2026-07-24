@@ -1,0 +1,36 @@
+# Ambient Clinical Doc Fine-Tuning — pinned deps (Day 1)
+# Versions frozen from the working local venv (Python 3.11.9).
+#
+# TWO ENVIRONMENTS, ONE FILE:
+#   - LOCAL (this Windows box, CPU-only): data prep + EDA. torch is the CPU build.
+#   - GCP VM (L4 GPU): training. Override torch with a CUDA build and add bitsandbytes:
+#       pip install torch --index-url https://download.pytorch.org/whl/cu124
+#       pip install bitsandbytes            # 4-bit QLoRA — GPU-only, do NOT install locally
+#
+# ponytail: single curated file, not a raw `pip freeze`. pip resolves transitive deps.
+
+# --- Core HF training/inference stack ---
+torch==2.13.0+cpu           # GCP: replace with CUDA build (see header)
+transformers==5.13.1
+peft==0.19.1
+trl==1.8.0
+accelerate==1.14.0
+datasets==5.0.0
+sentencepiece==0.2.2        # Gemma tokenizer backend
+
+# --- Evaluation (Day 10) ---
+evaluate==0.4.6
+rouge_score==0.1.2
+bert_score==0.3.13
+
+# --- Data cleaning / EDA (Days 2-3) ---
+pandas==3.0.3
+matplotlib==3.11.0
+ftfy==6.3.1                 # repairs mojibake in EHR-pasted text
+
+# --- Tracking / Hub ---
+wandb==0.28.0
+huggingface_hub==1.23.0
+
+# GPU-only, installed on the GCP VM (not here):
+# bitsandbytes            # NF4 4-bit quantization for QLoRA
