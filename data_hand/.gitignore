@@ -2,6 +2,9 @@
 Std/
 DB/Dataset_Engineering_Pipeline_Report.docx
 DB/dataset_similarity_cleaning_map.png
+# build artifact: regenerate with `python Data_main.py` (deterministic from DB/)
+processed/
+
 #ENV
 venv/
 .env
