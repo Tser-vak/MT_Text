@@ -19,10 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-# ponytail: lets `python db_tools/metrics.py` resolve `db_tools.seed` when run
-# directly (its own dir, not the repo root, is on sys.path in that case) --
-# same shim `tests/*.py` already uses; a no-op when imported normally.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# ponytail: db_tools/ lives under data_hand/, a sibling of this Eval/ dir --
+# put data_hand on the path so `db_tools.seed` resolves however this is run.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "data_hand"))
 
 from db_tools.seed import SEED
 

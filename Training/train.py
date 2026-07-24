@@ -20,7 +20,9 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # data_hand root on path
+_ROOT = Path(__file__).resolve().parent.parent   # repo root: Eval/, Training/
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "data_hand"))     # db_tools/ lives here
 
 from peft import prepare_model_for_kbit_training
 from trl import SFTConfig, SFTTrainer
