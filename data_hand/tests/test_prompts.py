@@ -9,7 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from db_tools.prompts import build, build_prompt
+from db_tools.prompts import build, build_prompt, build_train
 
 ACI_ROW = pd.Series({"dialogue": "[doctor] hi", "note": "CHIEF COMPLAINT\n..."})
 MTS_ROW = pd.Series({"section_header": "MEDICATIONS",
@@ -34,7 +34,20 @@ def test_build_prompt_matches_build():
         assert reference == full[-1]["content"], f"{family}: reference must match build()'s assistant content"
 
 
+def test_build_train():
+    for family, row in ROWS.items():
+        train_row = build_train(family, row)
+        full = build(family, row)
+        assert set(train_row.keys()) == {"prompt", "completion"}, \
+            f"{family}: expected exactly the prompt/completion keys"
+        assert train_row["prompt"] == full[:1], f"{family}: prompt must be build()'s user turn"
+        assert train_row["completion"] == full[-1:], f"{family}: completion must be build()'s assistant turn"
+        assert all(m["role"] != "assistant" for m in train_row["prompt"]), \
+            f"{family}: assistant turn leaked into prompt"
+
+
 if __name__ == "__main__":
     test_build_prompt_has_no_assistant_turn()
     test_build_prompt_matches_build()
+    test_build_train()
     print("All prompts checks passed.")

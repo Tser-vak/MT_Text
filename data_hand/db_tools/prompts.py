@@ -1,9 +1,19 @@
-"""Per-family prompt assembly: cleaned CSV row -> chat `messages` for SFT.
+"""Per-family prompt assembly: cleaned CSV row -> chat prompt data for SFT.
 
-Pure string work, NO tokenizer. This is the SFTTrainer-does-it-all path: return
-a two-turn conversation and let SFTTrainer apply the chat template and mask the
-prompt (completion_only_loss=True). Set max_length >= 4608 so nothing truncates
-(ACI max combined is 4551) -- then no custom tokenization/truncation is needed.
+Pure string work, NO tokenizer. Two shapes come out of this module:
+  - `build`/`build_prompt` -> a `messages` two-turn conversation, used for
+    eval-time generation and eval-loss inspection.
+  - `build_train` -> `{"prompt": [...], "completion": [...]}`, used for the
+    actual TRAIN mix.
+On the installed TRL 1.8.0, `completion_only_loss=True` on a `messages`-shaped
+dataset does NOT mask the prompt -- it silently trains on the dialogue turn
+too (verified: sft_trainer.py:1042-1046, 1481-1520). `assistant_only_loss=True`
+raises for vision-language models, and MedGemma (loaded via
+`AutoModelForImageTextToText` + `AutoProcessor`) is one (sft_trainer.py:1191).
+So the only path that actually masks the prompt is prompt/completion data +
+`completion_only_loss=True`, which is what `build_train` feeds `splits`'s
+train-mix loaders. Set max_length >= 4608 so nothing truncates (ACI max
+combined is 4551) -- then no custom tokenization/truncation is needed.
 
 Row schemas (from data_hand/processed/, produced by Data_main.py):
   ACI: encounter_id, dialogue, note
@@ -60,6 +70,28 @@ def build_prompt(family: str, row: pd.Series) -> tuple[list[dict[str, str]], str
     return prompt_message,reference
 
 
+def build_train(family: str, row: pd.Series) -> dict[str, list[dict[str, str]]]:
+    """Reuse `build(family, row)`'s two turns to produce the prompt/completion
+    shape TRL 1.8.0 needs to build its `-100` completion mask (see the module
+    docstring). Returns `{"prompt": [<user turn>], "completion": [<assistant
+    turn>]}` -- each value is a ONE-message list; the "prompt" side must match
+    `build_prompt`'s `prompt_messages` exactly, do not re-assemble the strings
+    by hand.
+    """
+    # ─────────────────────────────────────────────────────────────
+    # YOUR CODE — body prompts.build_train
+    # Goal: split build(family, row)'s two-turn conversation into a
+    #       {"prompt": [...], "completion": [...]} dict TRL can mask.
+    # Why:  TRL 1.8.0 only builds the -100 completion mask for prompt/completion
+    #       data; a `messages` dataset trains on the dialogue turn too, silently.
+    # Read: https://huggingface.co/docs/trl/main/en/dataset_formats#prompt-completion
+    # Done when: tests/test_prompts.py::test_build_train passes -- prompt +
+    #       completion reconcile exactly with build()'s two turns, no
+    #       assistant text leaks into "prompt".
+    raise NotImplementedError("prompts.build_train")
+    # ─────────────────────────────────────────────────────────────
+
+
 if __name__ == "__main__":
     # ponytail: no-tokenizer self-check -- fill in once build() is implemented.
     aci_row = pd.Series({"dialogue": "[doctor] hi", "note": "CHIEF COMPLAINT\n..."})
@@ -80,6 +112,13 @@ if __name__ == "__main__":
         assert prompt_messages == build(family, row)[:1]
         assert reference == build(family, row)[-1]["content"]
     print("prompts.build_prompt OK")
+
+    for family, row in (("MTS", mts_row), ("ACI", aci_row)):
+        train_row = build_train(family, row)
+        assert set(train_row) == {"prompt", "completion"}
+        assert train_row["prompt"] == build(family, row)[:1]
+        assert train_row["completion"] == build(family, row)[-1:]
+    print("prompts.build_train OK")
 
 # =========== IF THE CLASSIC SFTrain HAS BAD OUTCOME =========
 # --- 3-part variant (only if you switch to SeqTokenizer.encode custom path) ---
