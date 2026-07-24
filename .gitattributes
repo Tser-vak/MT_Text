@@ -1,0 +1,4 @@
+# Normalize all text to LF in the repo, regardless of OS.
+# Stops the "LF will be replaced by CRLF" churn between the Windows box
+# and the Linux GCP training VM.
+* text=auto eol=lf

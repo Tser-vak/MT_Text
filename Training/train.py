@@ -17,11 +17,16 @@ Read before implementing:
   - completion_only_loss / DataCollatorForLanguageModeling labels: sft_trainer.py:1558-1568 (installed trl==1.8.0)
 """
 import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # data_hand root on path
 
 from peft import prepare_model_for_kbit_training
 from trl import SFTConfig, SFTTrainer
 
-from db_tools import modeling, splits
+from Training import modeling
+from db_tools import splits
 from db_tools.seed import SEED, seed_everything
 
 

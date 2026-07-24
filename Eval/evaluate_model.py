@@ -16,11 +16,16 @@ Read before implementing:
 import argparse
 import random
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # data_hand root on path
 
 import pandas as pd
 import torch
 
-from db_tools import metrics, modeling, splits
+from Eval import metrics
+from Training import modeling
+from db_tools import splits
 from db_tools.decoding import GENERATION
 from db_tools.seed import SEED, seed_everything
 

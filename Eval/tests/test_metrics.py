@@ -1,4 +1,4 @@
-"""Acceptance checks for the db_tools/metrics.py::bootstrap_ci hole. These FAIL
+"""Acceptance checks for the Eval/metrics.py::bootstrap_ci hole. These FAIL
 with NotImplementedError until you fill the hole; when they pass, the CI is
 trustworthy enough to report alongside a ROUGE/BERTScore delta. Run via
 `pytest` or `python test_metrics.py`.
@@ -8,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # data_hand root
 
-from db_tools.metrics import bootstrap_ci
+from Eval.metrics import bootstrap_ci
 
 VALUES = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
