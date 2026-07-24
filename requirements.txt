@@ -3,14 +3,14 @@
 #
 # TWO ENVIRONMENTS, ONE FILE:
 #   - LOCAL (this Windows box, CPU-only): data prep + EDA. torch is the CPU build.
-#   - GCP VM (L4 GPU): training. Override torch with a CUDA build and add bitsandbytes:
-#       pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   - GCP VM (L4 GPU): training. torch 2.9 (CUDA) is ALREADY installed there —
+#     do NOT reinstall/override it. Just add bitsandbytes:
 #       pip install bitsandbytes            # 4-bit QLoRA — GPU-only, do NOT install locally
 #
 # ponytail: single curated file, not a raw `pip freeze`. pip resolves transitive deps.
 
 # --- Core HF training/inference stack ---
-torch==2.13.0+cpu           # GCP: replace with CUDA build (see header)
+# torch                     # unpinned on purpose: VM already has 2.9+CUDA; locally transformers pulls it in transitively (see header)
 transformers==5.13.1
 peft==0.19.1
 trl==1.8.0

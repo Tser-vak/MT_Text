@@ -118,6 +118,14 @@ def run_eval(model, processor, eval_name: str, fewshot_examples: list | None = N
     for name, (mean, lo, hi) in summary.items():
         print(f"  {name:<10} {mean:.4f}  [{lo:.4f}, {hi:.4f}]")
 
+    # ── W&B tracking — INPUT POINT (see utils/tracking.py) ──────────────────
+    # Log this family's metrics. There is NO Trainer here, so nothing auto-logs
+    # eval — this call is the only way these reach W&B:
+    #   from utils import tracking
+    #   family = splits.EVAL_FILES[eval_name][0]   # "ACI" | "MTS"
+    #   tracking.log_eval_summary(summary, family)
+    # ────────────────────────────────────────────────────────────────────────
+
     if out_csv:
         pd.DataFrame({"prediction": preds, "reference": refs}).to_csv(out_csv, index=False)
         print(f"per-example predictions written to {out_csv}")
@@ -141,6 +149,15 @@ def main() -> None:
         sys.exit("--fewshot is a baseline-only knob; drop --adapter or drop --fewshot")
 
     seed_everything()
+
+    # ── W&B tracking — INPUT POINT (see utils/tracking.py) ──────────────────
+    # Start one run for this eval invocation, then tracking.finish() after
+    # run_eval returns. run_eval() itself does the per-family log_eval_summary.
+    #   from utils import tracking
+    #   tracking.start_run("eval", config={"adapter": args.adapter,
+    #                      "eval": args.eval, "fewshot": args.fewshot})
+    # ────────────────────────────────────────────────────────────────────────
+
     processor, model = modeling.load_for_inference(adapter_path=args.adapter)
 
     fewshot_examples = None

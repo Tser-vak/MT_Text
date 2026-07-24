@@ -19,11 +19,7 @@ Read before implementing:
 import argparse
 import sys
 from pathlib import Path
-
-_ROOT = Path(__file__).resolve().parent.parent   # repo root: Eval/, Training/
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "data_hand"))     # db_tools/ lives here
-
+from dotenv import load_dotenv
 from peft import prepare_model_for_kbit_training
 from trl import SFTConfig, SFTTrainer
 
@@ -31,6 +27,12 @@ from Training import modeling
 from db_tools import splits
 from db_tools.seed import SEED, seed_everything
 
+#load the tokens for HF and Wandb
+load_dotenv()
+
+_ROOT = Path(__file__).resolve().parent.parent   # repo root: Eval/, Training/
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "data_hand"))     # db_tools/ lives here
 
 def inspect_loss_mask(*args, **kwargs):
     """
@@ -105,6 +107,13 @@ def main() -> None:
 
     seed_everything()
     splits.repeat_report(args.p)
+
+    # ── W&B tracking ────────────────────────────────────────────────────────
+    # Training logs to W&B through SFTTrainer directly — set report_to="wandb"
+    # (+ a sweep-legible run_name=...) in build_sft_config (H6). SFTTrainer then
+    # streams train loss, both eval losses, LR, and GPU memory on its own.
+    # utils/tracking.py is EVAL-ONLY and is deliberately NOT imported here.
+    # ────────────────────────────────────────────────────────────────────────
 
     processor = modeling.load_processor()
     base_model = modeling.load_base_model(quantize=True)
