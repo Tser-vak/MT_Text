@@ -17,7 +17,8 @@ Read before implementing:
   - PEFT prepare_model_for_kbit_training:
     https://huggingface.co/docs/peft/main/en/package_reference/peft_types#peft.prepare_model_for_kbit_training
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
+import torch
 
 MODEL_ID = "google/medgemma-4b-it"
 
@@ -35,31 +36,25 @@ def load_processor() -> AutoProcessor:
 def load_base_model(quantize: bool = True) -> AutoModelForImageTextToText:
     """Load the base MedGemma weights (no LoRA yet).
 
-    `quantize=True` (the QLoRA path): build an NF4 `BitsAndBytesConfig` and
-    pass it as `quantization_config` to `AutoModelForImageTextToText.from_pretrained`.
-    `quantize=False`: load full precision (e.g. for a CPU-only dry run of the
-    surrounding plumbing -- MedGemma 4B will not fit in RAM/VRAM unquantized
-    on modest hardware, this branch is for wiring checks, not real training).
+        `quantize=True` (the QLoRA path): build an NF4 `BitsAndBytesConfig` and
+        pass it as `quantization_config` to `AutoModelForImageTextToText.from_pretrained`.
+        `quantize=False`: load full precision (e.g. for a CPU-only dry run of the
+        surrounding plumbing -- MedGemma 4B will not fit in RAM/VRAM unquantized
+        on modest hardware, this branch is for wiring checks, not real training).
 
-    Returns: the loaded `AutoModelForImageTextToText` model, not yet wrapped
-    by `attach_lora`.
-    """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body modeling.load_base_model
-    # Goal: build torch.bfloat16-compute NF4 double-quant BitsAndBytesConfig
-    #       when quantize=True, and load MODEL_ID through
-    #       AutoModelForImageTextToText.from_pretrained with it (device_map
-    #       set so it lands on the GPU). Skip the quantization_config when
-    #       quantize=False.
-    # Why:  NF4 + double-quant + bf16 compute is why QLoRA fits an L4 GPU;
-    #       BitsAndBytesConfig's DEFAULTS are fp4 + float32 compute, which
-    #       quietly degrades accuracy and blows the VRAM budget.
-    # Read: https://huggingface.co/docs/transformers/main/en/quantization/bitsandbytes
-    # Done when (VM): loads in 4-bit, `nvidia-smi` shows ~3-4GB used, a
-    #       forward pass on one batch runs without a dtype/device error.
-    raise NotImplementedError("modeling.load_base_model")
-    # ─────────────────────────────────────────────────────────────
+        Returns: the loaded `AutoModelForImageTextToText` model, not yet wrapped
+        by `attach_lora`.
+        """
+    #Configuring the packaging of data and unpackaging
+    bnb_config = BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",
+                                    bnb_4bit_compute_dtype=torch.bfloat16,
+                                    bnb_4bit_use_double_quant=True) if quantize else None
 
+    #uploading the model weights
+    model = AutoModelForImageTextToText.from_pretrained(MODEL_ID,device_map="auto",
+                                                        quantization_config=bnb_config,
+                                                        dtype=torch.bfloat16)
+    return model
 
 def attach_lora(model: AutoModelForImageTextToText):
     """Wrap `model` (already 4-bit loaded + `prepare_model_for_kbit_training`'d
