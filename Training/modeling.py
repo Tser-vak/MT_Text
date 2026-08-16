@@ -17,10 +17,20 @@ Read before implementing:
   - PEFT prepare_model_for_kbit_training:
     https://huggingface.co/docs/peft/main/en/package_reference/peft_types#peft.prepare_model_for_kbit_training
 """
+from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
 import torch
 
 MODEL_ID = "google/medgemma-4b-it"
+
+# Anchored on the `language_model.` PATH SEGMENT, not on leaf names: peft matches
+# a name LIST by suffix, and the SigLIP vision tower's attention uses those same
+# leaf names (verified: SiglipAttention -> q_proj/k_proj/v_proj/out_proj), so a
+# bare ["q_proj", ...] silently adapts an image encoder this project never uses.
+# Passing a STRING is what makes peft switch to re.fullmatch over the full module
+# path -- as a list the anchor would be ignored. Same shape as peft's own gemma4
+# default, widened from q/v to attention + MLP.
+LANGUAGE_TOWER_PROJECTIONS = r".*language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)"
 
 
 def load_processor() -> AutoProcessor:
@@ -51,37 +61,45 @@ def load_base_model(quantize: bool = True) -> AutoModelForImageTextToText:
                                     bnb_4bit_use_double_quant=True) if quantize else None
 
     #uploading the model weights
+    # attn_implementation="eager": Gemma-3's card recommends it for TRAINING --
+    # the sdpa path interacts badly with attention soft-capping.
     model = AutoModelForImageTextToText.from_pretrained(MODEL_ID,device_map="auto",
                                                         quantization_config=bnb_config,
-                                                        dtype=torch.bfloat16)
+                                                        dtype=torch.bfloat16,
+                                                        attn_implementation="eager")
     return model
 
 def attach_lora(model: AutoModelForImageTextToText):
     """Wrap `model` (already 4-bit loaded + `prepare_model_for_kbit_training`'d
-    by the caller) with a LoRA adapter scoped to the LANGUAGE tower only.
+        by the caller) with a LoRA adapter scoped to the LANGUAGE tower only.
 
-    Prints the trainable-parameter percentage before returning (PEFT's own
-    `model.print_trainable_parameters()` is fine for this).
+        Prints the trainable-parameter percentage before returning (PEFT's own
+        `model.print_trainable_parameters()` is fine for this).
 
-    Returns: the `PeftModel`-wrapped model, ready for `SFTTrainer`.
-    """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body modeling.attach_lora
-    # Goal: build a LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
-    #       task_type="CAUSAL_LM", target_modules=...) scoped to
-    #       language_model.*'s attention/MLP projections ONLY, then
-    #       get_peft_model(model, lora_config).
-    # Why:  a bare leaf-name list like ["q_proj", "v_proj", ...] ALSO matches
-    #       inside the SigLIP vision tower and the multi-modal projector --
-    #       adapting those wastes capacity on a task that doesn't need it and
-    #       is the classic MedGemma QLoRA footgun. 0% or 100% trainable
-    #       printed means it's wired wrong either way.
-    # Read: https://huggingface.co/docs/peft/main/en/package_reference/lora#peft.LoraConfig
-    # Done when (VM): trainable params print ~1-2% of total, and the printed
-    #       target-module list contains no vision_tower/multi_modal_projector
-    #       entries.
-    raise NotImplementedError("modeling.attach_lora")
-    # ─────────────────────────────────────────────────────────────
+        Returns: the `PeftModel`-wrapped model, ready for `SFTTrainer`.
+        """
+    # Plain LoRA on purpose -- no rsLoRA, no DoRA. This is the plan's starting
+    # config (scale = alpha/r = 2.0, which the 2e-4 LR was chosen against); both
+    # variants belong in the Day-9 one-variable-at-a-time table, measured against
+    # this run as the incumbent.
+    lora_config = LoraConfig(r=16,
+                            lora_alpha=32,
+                             bias="none",
+                             lora_dropout = 0.05,
+                             target_modules=LANGUAGE_TOWER_PROJECTIONS,
+                             task_type="CAUSAL_LM")
+
+    peft_model = get_peft_model(model, lora_config)
+
+    # Day-6 gate: expect ~1-2% trainable and no vision_tower entry. 0% means the
+    # regex matched nothing (real nesting differs from what it assumes);
+    # ~100% would mean the scoping was ignored entirely.
+    peft_model.print_trainable_parameters()
+    targets = sorted(peft_model.targeted_module_names)
+    print(f"LoRA targets: {len(targets)} modules, e.g. {targets[:3]}")
+    assert not any("vision_tower" in t or "multi_modal_projector" in t for t in targets), \
+        "LoRA leaked into the vision tower -- check LANGUAGE_TOWER_PROJECTIONS"
+    return peft_model
 
 
 def load_for_inference(adapter_path: str | None = None):

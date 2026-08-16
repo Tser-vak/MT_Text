@@ -31,6 +31,7 @@ ftfy==6.3.1                 # repairs mojibake in EHR-pasted text
 # --- Tracking / Hub ---
 wandb==0.28.0
 huggingface_hub==1.23.0
+python-dotenv==1.2.2        # Training/train.py loads HF + W&B tokens from .env
 
 # GPU-only, installed on the GCP VM (not here):
 # bitsandbytes            # NF4 4-bit quantization for QLoRA

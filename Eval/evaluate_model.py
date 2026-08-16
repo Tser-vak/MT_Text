@@ -6,7 +6,7 @@ by the harness. `--adapter` absent -> baseline (optionally `--fewshot k`);
 single-turn, see `Std/PROGRESS.md` Day-5 #3).
 
 Consumes `splits.load_eval(name)` unchanged (`prompt_messages` + `reference`
-columns); scores with `db_tools/metrics.py`, reported per family, never
+columns); scores with `Eval/metrics.py`, reported per family, never
 pooled (Day-10 #4).
 
 Read before implementing:
@@ -74,9 +74,12 @@ def generate_batch(model, processor, rows: list[dict], fewshot_examples: list | 
     inputs = processor.tokenizer(texts, return_tensors="pt", padding=True, add_special_tokens=False)
     inputs = inputs.to(model.device)
 
+    # convert_tokens_to_ids returns the UNK id (not None) for a token the
+    # vocab doesn't have, so compare against unk_token_id -- adding unk to the
+    # eos set would halt generation on the first unknown token.
     eos_ids = {processor.tokenizer.eos_token_id}
     end_of_turn_id = processor.tokenizer.convert_tokens_to_ids("<end_of_turn>")
-    if end_of_turn_id is not None:
+    if end_of_turn_id is not None and end_of_turn_id != processor.tokenizer.unk_token_id:
         eos_ids.add(end_of_turn_id)
 
     with torch.inference_mode():

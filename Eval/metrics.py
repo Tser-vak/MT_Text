@@ -47,6 +47,17 @@ def bertscore(preds: list[str], refs: list[str], lang: str = "en") -> list[float
     this function (not module scope) because the first call downloads a
     scoring model over the network -- keeping that off the module's import
     path is what lets `metrics.py` still import on an offline CPU box.
+
+    KNOWN LIMIT -- read before quoting this number. `lang="en"` selects
+    roberta-large, whose context is 512 tokens, and bert_score TRUNCATES
+    silently past that rather than erroring. ACI full notes average ~599
+    tokens, so for a good fraction of the frozen test set this scores the
+    head of the note and drops the tail. Every BERT-family scorer has the
+    same 512 ceiling, so there is no drop-in fix. Baseline and fine-tuned are
+    truncated identically, so the DELTA stays valid -- the absolute value is
+    "BERTScore over the first 512 tokens", and must be reported that way in
+    the writeup/model card. ROUGE (no length limit) and the Day-11 judge
+    cover the tail. MTS sections are far under 512 and are unaffected.
     """
     import bert_score as _bert_score
 
@@ -68,20 +79,19 @@ def bootstrap_ci(values: list[float], B: int = 2000, alpha: float = 0.05, seed: 
     Returns: `(mean, lo, hi)` -- `mean` is `values`'s plain mean, `lo`/`hi`
     are the bootstrap percentile bounds (`lo <= mean <= hi` in expectation).
     """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body metrics.bootstrap_ci
-    # Goal: resample `values` with replacement `B` times, take the mean of
-    #       each resample, and return (mean(values), lo_percentile, hi_percentile)
-    #       of that distribution of resample means.
-    # Why:  n=40 (ACI test) makes a bare "ROUGE +1.3" indistinguishable from
-    #       resampling noise -- the CI is what turns a raw metric delta into a
-    #       claim you can defend in review.
-    # Read: https://en.wikipedia.org/wiki/Bootstrapping_(statistics)#Case_resampling
-    # Done when: tests/test_metrics.py::test_bootstrap_ci passes -- the CI
-    #       brackets the mean, is deterministic for a fixed seed, and its
-    #       run-to-run variability shrinks as B grows.
-    raise NotImplementedError("metrics.bootstrap_ci")
-    # ─────────────────────────────────────────────────────────────
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        raise ValueError("bootstrap_ci needs at least one value")
+
+    # Local Generator, not np.random.* -- `seed` alone must determine the draws
+    # regardless of global RNG state (two callers, same seed, same CI).
+    rng = np.random.default_rng(seed)
+    # (B, n) index matrix -> one resample per row, each the same size as `arr`.
+    resamples = arr[rng.integers(0, arr.size, size=(B, arr.size))]
+    means = resamples.mean(axis=1)
+
+    lo, hi = np.percentile(means, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return float(arr.mean()), float(lo), float(hi)
 
 
 def summarize(metric_values: dict[str, list[float]], B: int = 2000, seed: int = SEED

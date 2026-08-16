@@ -78,18 +78,10 @@ def build_train(family: str, row: pd.Series) -> dict[str, list[dict[str, str]]]:
     `build_prompt`'s `prompt_messages` exactly, do not re-assemble the strings
     by hand.
     """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body prompts.build_train
-    # Goal: split build(family, row)'s two-turn conversation into a
-    #       {"prompt": [...], "completion": [...]} dict TRL can mask.
-    # Why:  TRL 1.8.0 only builds the -100 completion mask for prompt/completion
-    #       data; a `messages` dataset trains on the dialogue turn too, silently.
-    # Read: https://huggingface.co/docs/trl/main/en/dataset_formats#prompt-completion
-    # Done when: tests/test_prompts.py::test_build_train passes -- prompt +
-    #       completion reconcile exactly with build()'s two turns, no
-    #       assistant text leaks into "prompt".
-    raise NotImplementedError("prompts.build_train")
-    # ─────────────────────────────────────────────────────────────
+    # Slice build()'s own output -- never re-assemble the strings. That is what
+    # keeps the train prompt byte-identical to build_prompt's eval prompt.
+    conversation = build(family, row)
+    return {"prompt": conversation[:1], "completion": conversation[-1:]}
 
 
 if __name__ == "__main__":

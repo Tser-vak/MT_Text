@@ -19,6 +19,13 @@ Read before implementing:
 import argparse
 import sys
 from pathlib import Path
+
+# Path setup MUST come before the Training/db_tools imports below -- otherwise
+# `python Training/train.py` puts only Training/ on sys.path and both fail.
+_ROOT = Path(__file__).resolve().parent.parent   # repo root: Eval/, Training/
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "data_hand"))     # db_tools/ lives here
+
 from dotenv import load_dotenv
 from peft import prepare_model_for_kbit_training
 from trl import SFTConfig, SFTTrainer
@@ -30,9 +37,6 @@ from db_tools.seed import SEED, seed_everything
 #load the tokens for HF and Wandb
 load_dotenv()
 
-_ROOT = Path(__file__).resolve().parent.parent   # repo root: Eval/, Training/
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "data_hand"))     # db_tools/ lives here
 
 def inspect_loss_mask(*args, **kwargs):
     """
@@ -117,8 +121,14 @@ def main() -> None:
 
     processor = modeling.load_processor()
     base_model = modeling.load_base_model(quantize=True)
-    base_model = prepare_model_for_kbit_training(base_model)
-    base_model.gradient_checkpointing_enable()
+    # prepare_model_for_kbit_training already turns gradient checkpointing on --
+    # calling gradient_checkpointing_enable() again after it re-enables it with
+    # the default use_reentrant=True, which breaks grad flow through the LoRA
+    # adapters on some peft/transformers combos. One call, non-reentrant.
+    base_model = prepare_model_for_kbit_training(
+        base_model, use_gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+    )
     model = modeling.attach_lora(base_model)
 
     train_ds = splits.make_train_mix_pc(args.p, SEED)
