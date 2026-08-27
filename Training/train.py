@@ -32,64 +32,87 @@ from trl import SFTConfig, SFTTrainer
 
 from Training import modeling
 from db_tools import splits
+from db_tools.prompts import INSTRUCTION
 from db_tools.seed import SEED, seed_everything
 
 #load the tokens for HF and Wandb
 load_dotenv()
 
 
-def inspect_loss_mask(*args, **kwargs):
-    """
-    YOUR CODE — full train.inspect_loss_mask
-    Goal: design a utility that pulls ONE collated training batch (e.g. from
-          a trainer's dataloader), decodes the tokens where `labels != -100`
-          separately from the tokens where `labels == -100`, and asserts only
-          the completion (assistant turn) is unmasked while the prompt is
-          masked. You choose the signature and what it needs access to
-          (trainer, dataloader, tokenizer, ...).
-    Why:  THIS is the check that proves the prompt/completion fix
-          (`prompts.build_train` + `completion_only_loss=True`) actually
-          works. If it fails, the model is training on its own input and
-          every downstream loss/metric number is uninterpretable
-          (Std/PROGRESS.md Day-7 #3).
-    Read: https://huggingface.co/docs/trl/main/en/dataset_formats#which-formats-are-relevant-for-me
-          and sft_trainer.py:1558-1568 (installed trl==1.8.0)
-    Done when (VM): decoding shows the dialogue/instruction masked and the
-          note/section unmasked; switching the trainer back onto a
-          `messages`-shaped dataset makes this assertion FAIL.
-    """
-    raise NotImplementedError("train.inspect_loss_mask")
+def inspect_loss_mask(trainer: SFTTrainer, n_rows: int = 2) -> None:
+    #Print and assert what the model is actually trained on, for `n_rows`
+    #rows of ONE training batch. Raises AssertionError if the prompt leaked
+    #into the loss. Returns nothing -- this is a gate, not a data source.
+
+    #WHY THIS EXISTS: `"label"s == -100` means "this token contributes nothing to
+    #the loss". We want the dialogue+instruction masked and only the note /
+    #section unmasked. If that is wrong, the model is trained to reproduce its
+    #own input, and every loss and metric downstream is uninterpretable -- but
+    #NOTHING CRASHES. That is why this is a hand-written check and not a unit
+    #test you can skip.
+
+    #Step 1:Create the batchs for the Training Like the gpu reasds it (get the batch and the tokenizer )
+
+    batch = next(iter(trainer.get_train_dataloader()))
+
+    tok = trainer.processing_class.tokenizer
+
+    #Step.2 : split one row into trained vs. read
+
+    for i in range (min(n_rows,len(batch["input_ids"]))):
+
+        ids = batch["input_ids"][i]
+        keep = batch["labels"][i] != -100
+        trained = tok.decode(ids[keep], skip_special_tokens=False)
+        read = tok.decode(ids[~keep], skip_special_tokens=False)
+
+        #Step.3 : print BEFORE asserting -- on the VM the traceback alone
+        #won't tell you WHAT leaked.
+        print(f"[row {i}] kept {int(keep.sum())}/{len(keep)} tokens")
+        print(f"[TRAINED] {trained[:300]!r}")
+        print(f"[READ]    {read[:300]!r}")
+
+        #Step.4 : the three gates
+        assert keep.any(), f"row {i}: nothing is trained on -- loss will be NaN/zero"
+        assert (~keep).any(), f"row {i}: NOTHING is masked -- labels == input_ids, training on the dialogue"
+
+        # (c) the instruction preamble must be on the READ side only. MTS is a
+        # format string, so match on the literal prefix before "{section}" --
+        # the rendered text carries the real header, never the placeholder.
+        for family, template in INSTRUCTION.items():
+            needle = template.split("{")[0]
+            if needle in read:                      # this row's family
+                assert needle not in trained, (
+                    f"row {i}: {family} instruction leaked into the loss -- {trained[:200]!r}"
+                )
 
 
-def build_sft_config(*args, **kwargs):
-    """
-    YOUR CODE — full train.build_sft_config
-    Goal: assemble the full `SFTConfig` for the run, using the VERIFIED
-          param names (not the deprecated ones): `eval_strategy="steps"`,
-          `train_sampling_strategy="group_by_length"`, `warmup_steps=N`,
-          `max_length` set >= 4608, `completion_only_loss=True`,
-          `metric_for_best_model="eval_aci_val_loss"` (a SINGLE eval-loss
-          key -- the two family losses can't be blended into one), plus
-          `output_dir`/batch/accum/optimizer/LR/logging fields. Also compute
-          `max_steps` from `splits.repeat_report(p)`'s draw count divided by
-          the effective batch size (`per_device_train_batch_size *
-          gradient_accumulation_steps`), times however many passes over the
-          mixed stream you want -- "epoch" is meaningless under
-          `stopping_strategy="all_exhausted"` (Std/PROGRESS.md Day-8 #2). You
-          choose this function's signature (what args/CLI knobs it needs).
-    Why:  LoRA needs a much higher LR than full fine-tuning (full FT ~1e-5,
-          LoRA ~1e-4-2e-4 territory -- go read why); the deprecated param
-          names (`evaluation_strategy`, `group_by_length=True`,
-          `warmup_ratio`) either raise or silently no-op on trl==1.8.0; the
-          default `max_length=1024` silently truncates ACI notes (measured
-          max ~4551 tokens).
-    Read: https://huggingface.co/docs/trl/main/en/sft_trainer#trl.SFTConfig
-          https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments
-    Done when (VM): a short run logs `eval_aci_val_loss` and `eval_mts_val_loss`
-          SEPARATELY, saves the best checkpoint by `metric_for_best_model`,
-          and no max-length truncation warning appears.
-    """
-    raise NotImplementedError("train.build_sft_config")
+def build_sft_config(args, n_train_rows: int) -> SFTConfig:
+    #Build and return the `SFTConfig` for this run.
+
+    # create the batch of steps count so it can say how many steps for 3 epoch or the number you want
+    effective_batch = args.per_device_batch * args.grad_accum
+    steps_per_pass = n_train_rows // effective_batch
+    max_step = int(steps_per_pass * args.passes)
+
+    #Step 2 SFTconfig
+    # --overfit: main() sets eval_ds=None, so eval/save/best-model must all be off
+    if args.overfit:
+        return SFTConfig( output_dir = args.output_dir ,max_steps = 60, per_device_train_batch_size= args.per_device_batch,
+        gradient_accumulation_steps = args.grad_accum, per_device_eval_batch_size= 1, max_length= 4608 ,
+        completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
+        warmup_steps= 0, optim= args.optim, bf16= True, eval_strategy= "no",
+        save_strategy= "no", load_best_model_at_end=False,
+        logging_steps=5, report_to= "none", seed= SEED)
+
+    return SFTConfig( output_dir = args.output_dir ,max_steps = max_step, per_device_train_batch_size= args.per_device_batch,
+    gradient_accumulation_steps = args.grad_accum, per_device_eval_batch_size= 1, max_length= 4608 ,
+    completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
+    warmup_steps= int(0.03 * max_step), optim= args.optim, bf16= True, eval_strategy= "steps", eval_steps= args.eval_steps,
+    save_strategy= "steps", save_steps= args.eval_steps, save_total_limit= 2, load_best_model_at_end=True,
+    metric_for_best_model= "eval_aci_val_loss" ,logging_steps=5, report_to= "wandb",
+    run_name=f"medgemma-qlora-p{args.p}-lr2e-4-r16", seed= SEED)
+
 
 
 def main() -> None:
@@ -140,7 +163,7 @@ def main() -> None:
         eval_ds = None
         print(f"--overfit: training on {n} rows only, eval disabled")
 
-    sft_config = build_sft_config(args)
+    sft_config = build_sft_config(args, len(train_ds))
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
