@@ -3,3 +3,13 @@
 CLAUDE.md
 .idea
 .env
+
+# python
+__pycache__/
+*.pyc
+venv/
+data_hand/venv/
+
+# run outputs -- adapters are big, wandb/ is a local cache
+checkpoints/
+wandb/

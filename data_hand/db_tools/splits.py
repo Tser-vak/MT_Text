@@ -7,12 +7,14 @@ train set. `prompts.build`/`prompts.build_train` are the only prompt paths --
 this module never re-implements prompt assembly, it only wires rows into them
 via `.map()`.
 
-Day-6 addition: `load_families`/`make_train_mix` (messages-shaped, via
-`prompts.build`) now feed eval-loss/inspection only -- TRL 1.8.0 does NOT mask
-the prompt on a `messages` dataset (see prompts.py's module docstring). The
-actual TRAIN mix goes through `load_families_train`/`make_train_mix_pc`
-instead (prompt/completion-shaped, via `prompts.build_train`), which is what
-`completion_only_loss=True` actually masks.
+Day-6 addition: the TRAIN mix goes through `load_families_train`/
+`make_train_mix_pc` (prompt/completion-shaped, via `prompts.build_train`),
+because TRL 1.8.0 does NOT mask the prompt on a `messages` dataset (see
+prompts.py's module docstring) -- prompt/completion is the only shape
+`completion_only_loss=True` actually masks. The messages-shaped
+`make_train_mix` was deleted once nothing called it; `load_families`
+(messages) survives because `repeat_report` and `evaluate_model`'s few-shot
+sampler still use it.
 
 `aci_valid.csv` (20 rows) is held OUT of the train pool -- it's the full-note
 validation split (see `EVAL_FILES`/`load_eval`), needed for a legal checkpoint
@@ -86,26 +88,6 @@ def load_eval(name: str) -> datasets.Dataset:
     return ds.map(_add_columns)
 
 
-def make_train_mix( p :float, seed_num:int ) -> datasets.Dataset:
-    """The Q1 mixing decision: one stream the trainer draws batches from, at
-    ACI exposure `p`, instead of concatenating + shuffling (which would freeze
-    ACI at its natural ~11% and let the ~8x row imbalance dominate).
-
-    `p` binds to ACI because ACI is FIRST in the list below. Chosen start:
-    p=0.4 -> ~1990 rows, ACI replayed ~5.4x (see `repeat_report`).
-
-    Not shuffled first: HF `Trainer` wraps a map-style `Dataset` in a
-    `RandomSampler`, so this order never reaches the model. Revisit only if
-    this ever becomes a streaming `IterableDataset`.
-    """
-    #load the training data
-    aci_dt , mts_dt =load_families()
-
-    #Data shuffling
-    dataset = datasets.interleave_datasets([aci_dt, mts_dt],probabilities=[p, 1-p],seed=seed_num,stopping_strategy="all_exhausted")
-
-    return dataset
-
 def repeat_report(p: float) -> None:
     """Print how many times each family is replayed at draw probability `p`,
     WITHOUT materializing the mix -- this is how you choose `p` before paying
@@ -139,10 +121,21 @@ def load_families_train() -> tuple[datasets.Dataset, datasets.Dataset]:
 
 
 def make_train_mix_pc(p: float, seed_num: int) -> datasets.Dataset:
-    """Prompt/completion counterpart to `make_train_mix` -- same interleave
-    knob and rationale (see that docstring for the p/seed discussion), built
-    from `load_families_train` so the trainer actually gets a maskable
-    dataset. THIS is the function `train.py` feeds `SFTTrainer`."""
+    """The Q1 mixing decision, and the ONLY train-mix builder: one stream the
+    trainer draws batches from at ACI exposure `p`, instead of concatenating +
+    shuffling (which would freeze ACI at its natural ~11% and let the ~8x row
+    imbalance dominate). Built from `load_families_train`, so the rows are
+    prompt/completion-shaped and TRL can actually mask the prompt.
+
+    A weighted sampler, NOT a file merge: nothing is written to disk, and
+    `p` binds to ACI because ACI is FIRST in the list below. Chosen start:
+    p=0.4 -> ~1990 draws, ACI replayed ~5.4x (see `repeat_report`).
+
+    Not shuffled first: HF `Trainer` wraps a map-style `Dataset` in a
+    `RandomSampler`, so this order never reaches the model. Revisit only if
+    this ever becomes a streaming `IterableDataset`.
+
+    THIS is the function `train.py` feeds `SFTTrainer`."""
     aci_dt, mts_dt = load_families_train()
     dataset = datasets.interleave_datasets([aci_dt, mts_dt], probabilities=[p, 1 - p],
                                             seed=seed_num, stopping_strategy="all_exhausted")

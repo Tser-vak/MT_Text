@@ -1,5 +1,5 @@
 """Day 7-8: QLoRA SFT training entrypoint. Loads MedGemma 4-bit through
-`db_tools/modeling.py`, attaches LoRA, builds the prompt/completion train mix
+`Training/modeling.py`, attaches LoRA, builds the prompt/completion train mix
 + dict eval loss through `db_tools/splits.py`, and drives `SFTTrainer`.
 
 `--overfit` is the Day-7 sanity gate (do not skip, per Std/PROGRESS.md): train
@@ -17,6 +17,7 @@ Read before implementing:
   - completion_only_loss / DataCollatorForLanguageModeling labels: sft_trainer.py:1558-1568 (installed trl==1.8.0)
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -34,9 +35,18 @@ from Training import modeling
 from db_tools import splits
 from db_tools.prompts import INSTRUCTION
 from db_tools.seed import SEED, seed_everything
+from utils.tracking import WANDB_PROJECT  # the CONSTANT only -- see below
 
 #load the tokens for HF and Wandb
 load_dotenv()
+
+# HF's WandbCallback reads the project from the ENVIRONMENT and defaults to
+# "huggingface" (integration_utils.py: os.getenv("WANDB_PROJECT", "huggingface")),
+# so without this the training runs land in a different W&B project than the eval
+# runs and the two can never be compared. setdefault, so an explicit env var wins.
+# This imports tracking's CONSTANT, not its logging -- training still logs only
+# through SFTTrainer.
+os.environ.setdefault("WANDB_PROJECT", WANDB_PROJECT)
 
 
 def inspect_loss_mask(trainer: SFTTrainer, n_rows: int = 2) -> None:
@@ -96,10 +106,15 @@ def build_sft_config(args, n_train_rows: int) -> SFTConfig:
     max_step = int(steps_per_pass * args.passes)
 
     #Step 2 SFTconfig
-    # --overfit: main() sets eval_ds=None, so eval/save/best-model must all be off
+    # --overfit: main() sets eval_ds=None, so eval/save/best-model must all be off.
+    # grad_accum FORCED to 1 here (not args.grad_accum): the gate asks "can loss
+    # reach ~0 on 8 rows", and memorization comes from the NUMBER of optimizer
+    # steps, not from batch size. At grad_accum=8 those 100 steps would consume
+    # 1600 samples (200 replays of the 8 rows) to take the same 100 updates --
+    # ~8x the forward/backward passes for no extra learning.
     if args.overfit:
-        return SFTConfig( output_dir = args.output_dir ,max_steps = 60, per_device_train_batch_size= args.per_device_batch,
-        gradient_accumulation_steps = args.grad_accum, per_device_eval_batch_size= 1, max_length= 4608 ,
+        return SFTConfig( output_dir = args.output_dir ,max_steps = 100, per_device_train_batch_size= args.per_device_batch,
+        gradient_accumulation_steps = 1, per_device_eval_batch_size= 1, max_length= 4608 ,
         completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
         warmup_steps= 0, optim= args.optim, bf16= True, eval_strategy= "no",
         save_strategy= "no", load_best_model_at_end=False,
@@ -110,6 +125,18 @@ def build_sft_config(args, n_train_rows: int) -> SFTConfig:
     completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
     warmup_steps= int(0.03 * max_step), optim= args.optim, bf16= True, eval_strategy= "steps", eval_steps= args.eval_steps,
     save_strategy= "steps", save_steps= args.eval_steps, save_total_limit= 2, load_best_model_at_end=True,
+    # Selection on ACI, deliberately -- not an oversight of the ~8:1 imbalance.
+    # ACI (full notes) is the TARGET task and what aci_test reports on; MTS is
+    # AUXILIARY (extra volume + clinical vocabulary), and you never select a
+    # checkpoint on an auxiliary objective. Not the mean of the two: they are
+    # different genres on different loss scales, and averaging hides the case
+    # that matters -- MTS still falling while ACI has begun to overfit.
+    # The 20-row split is less noisy than the row count suggests: eval loss is
+    # averaged per TOKEN, and 20 full notes (~599 tok each) outweigh the 98
+    # short MTS sections. Confirm with measure_lengths.py on the VM.
+    # MTS is not ignored -- its eval loss is logged every eval_steps. If it is
+    # climbing at the selected step, that means `--p` is over-replaying ACI;
+    # fix the mixing knob, not this metric.
     metric_for_best_model= "eval_aci_val_loss" ,logging_steps=5, report_to= "wandb",
     run_name=f"medgemma-qlora-p{args.p}-lr2e-4-r16", seed= SEED)
 

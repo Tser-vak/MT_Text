@@ -20,6 +20,18 @@ Read before implementing:
     https://huggingface.co/docs/transformers/main/en/main_classes/callback#transformers.integrations.WandbCallback
 """
 
+import random
+import sys
+from pathlib import Path
+
+try:
+    from db_tools.seed import SEED
+except ImportError:
+    # ponytail: standalone `python utils/tracking.py` doesn't get evaluate_model.py's
+    # sys.path bootstrap -- mirror it here so both entry points work.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "data_hand"))
+    from db_tools.seed import SEED
+
 WANDB_PROJECT = "medgemma-clinical-notes"
 
 
@@ -31,29 +43,24 @@ def start_run(stage: str, config: dict, run_name: str | None = None):
                    eval split, few-shot k).
     `run_name`  -- optional explicit name; when None, derive a stable one.
 
-    Returns the `wandb.Run`, or None when tracking is disabled, so callers can
-    guard `if run is not None:` before logging.
+    Returns the `wandb.Run`, so callers can guard `if run is not None:` before
+    logging. No explicit off-switch: `WANDB_MODE=offline` / `WANDB_MODE=disabled`
+    already make `wandb.init` return a (no-op) run, and a second mechanism would
+    just be a second thing to check when logging goes quiet.
     """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body tracking.start_run
-    # Goal: `import wandb` (inside the fn), call `wandb.init(project=
-    #       WANDB_PROJECT, name=<run_name or a name you derive from stage+config
-    #       so runs are legible, e.g. f"{stage}-{config['eval']}">,
-    #       config=config, group=stage)` and return the run. Respect a disabled
-    #       run: if the user set WANDB_MODE=offline / WANDB_DISABLED, wandb.init
-    #       still returns a (no-op) run, so returning it as-is is fine -- but
-    #       decide whether you also want an explicit off-switch (e.g. a
-    #       `config`/env flag) that returns None instead.
-    # Why:  you run this script several times -- baseline vs fine-tuned, per
-    #       eval split, per selected checkpoint; if every run is auto-named
-    #       "misty-sunset-42" you can't tell them apart. A name derived from the
-    #       knobs is what makes the comparison table readable.
-    # Read: https://docs.wandb.ai/ref/python/init
-    # Done when (VM): `wandb.init` succeeds and the run shows your config dict
-    #       and a legible name in the W&B UI; a baseline run and a fine-tuned
-    #       run are visibly distinct and overlay-comparable.
-    raise NotImplementedError("tracking.start_run")
-    # ─────────────────────────────────────────────────────────────
+    import wandb
+
+    if run_name is None:
+        # a derived name beats "misty-sunset-42" -- these runs are only useful
+        # side by side, so the knobs that differ have to be IN the name.
+        parts = [stage, str(config.get("eval", "?"))]
+        if config.get("fewshot"):
+            parts.append(f"k{config['fewshot']}")
+        if config.get("adapter"):
+            parts.append(Path(config["adapter"]).name)
+        run_name = "-".join(parts)
+
+    return wandb.init(project=WANDB_PROJECT, name=run_name, config=config, group=stage)
 
 
 def log_eval_summary(summary: dict, family: str, step: int | None = None) -> None:
@@ -63,23 +70,46 @@ def log_eval_summary(summary: dict, family: str, step: int | None = None) -> Non
                  `{metric_name: (mean, lo, hi)}`.
     `family`  -- "ACI" or "MTS" (from `splits.EVAL_FILES[name][0]`).
     """
-    # ─────────────────────────────────────────────────────────────
-    # YOUR CODE — body tracking.log_eval_summary
-    # Goal: `import wandb`, flatten `summary` into a flat metric dict keyed
-    #       BY FAMILY (e.g. {"ACI/rougeL": mean, "ACI/rougeL_lo": lo,
-    #       "ACI/rougeL_hi": hi, ...}) and `wandb.log(...)` it. No-op safely if
-    #       there is no active run (`wandb.run is None`).
-    # Why:  metrics are reported PER FAMILY, never pooled (Std/PROGRESS.md
-    #       Day-10 #4) -- at ~8:1 MTS:ACI a pooled number is an MTS number in
-    #       disguise. Namespacing the keys by family is what keeps the two
-    #       curves separable in the W&B UI, the same discipline as the two
-    #       separate training eval-losses.
-    # Read: https://docs.wandb.ai/ref/python/log
-    # Done when (VM): both "ACI/*" and "MTS/*" metric groups appear as distinct
-    #       series in the run, and a baseline run vs a fine-tuned run are
-    #       directly overlay-comparable per family.
-    raise NotImplementedError("tracking.log_eval_summary")
-    # ─────────────────────────────────────────────────────────────
+    import wandb
+    if wandb.run is None:
+        return
+
+    # keys namespaced by family -- that prefix is what makes W&B render ACI and
+    # MTS as two separate panel groups instead of one pooled (== MTS) number.
+    flat = {}
+    for name, (mean, lo, hi) in summary.items():
+        flat[f"{family}/{name}"] = mean
+        flat[f"{family}/{name}_lo"] = lo
+        flat[f"{family}/{name}_hi"] = hi
+
+    wandb.log(flat, step=step)  # step=None -> wandb auto-increments
+
+
+def log_samples(prompts: list[str], preds: list[str], refs: list[str],
+                 family: str, n: int = 10) -> None:
+    """Log a qualitative sample table to the active W&B run.
+
+    `prompts`, `preds`, `refs` -- three parallel lists (same length, same
+    order as `run_eval`'s `preds`/`refs`).
+    `family` -- "ACI" | "MTS" (from `splits.EVAL_FILES[name][0]`).
+    `n`      -- number of rows to sample into the table.
+    """
+    import wandb
+    if wandb.run is None:
+        return
+
+    # SEED, not a fresh RNG: baseline and fine-tuned runs MUST draw the same
+    # row indices, or the two tables show different patients and can't be read
+    # side by side.
+    idxs = random.Random(SEED).sample(range(len(preds)), min(n, len(preds)))
+
+    table = wandb.Table(columns=["dialogue", "reference", "prediction"])
+    for i in idxs:
+        # ponytail: flat 2000-char truncation on the dialogue only -- W&B cells
+        # get unreadable past that. Widen if a real note gets clipped.
+        table.add_data(prompts[i][:2000], refs[i], preds[i])
+
+    wandb.log({f"{family}/samples": table})
 
 
 def finish() -> None:
@@ -94,7 +124,20 @@ if __name__ == "__main__":
     # ponytail: no real wandb.init here -- that needs a W&B login + network,
     # neither of which the CPU smoke test should require. Just check wiring.
     assert WANDB_PROJECT
-    for fn in (start_run, log_eval_summary, finish):
+    for fn in (start_run, log_eval_summary, log_samples, finish):
         assert callable(fn)
-    print("tracking.py wiring OK (start_run/log_eval_summary are holes -- fill + "
-          "run on the VM with `wandb login` done)")
+
+    # the one real check: with no active run, the loggers must no-op rather
+    # than raise -- that guard is what lets evaluate_model.py run on a box with
+    # no W&B login. Skipped entirely if wandb isn't installed locally.
+    try:
+        import wandb
+    except ImportError:
+        print("wandb not installed locally -- no-op guard check skipped")
+    else:
+        assert wandb.run is None, "expected no active run in the smoke test"
+        log_eval_summary({"rougeL": (0.4, 0.3, 0.5)}, "ACI")
+        log_samples(["dialogue"], ["pred"], ["ref"], "ACI")
+        finish()
+    print("tracking.py wiring OK (all bodies filled -- real check is on the VM "
+          "with `wandb login` done)")
