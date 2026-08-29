@@ -13,3 +13,6 @@ data_hand/venv/
 # run outputs -- adapters are big, wandb/ is a local cache
 checkpoints/
 wandb/
+
+#dev files 
+vision/
