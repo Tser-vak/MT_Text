@@ -30,7 +30,9 @@ import pandas as pd
 # without it the dialogue->section_text mapping is ambiguous. Tune the wording;
 # the {section} slot for MTS is required.
 INSTRUCTION = {
-    "ACI": "Generate a clinical note from the following doctor-patient dialogue:",
+    "ACI": "Generate a clinical note from the following doctor-patient dialogue. "
+    "Do NOT invent or hallucinate physical examination findings "
+    "if they were not explicitly discussed in the dialogue.",
     "MTS": "Summarize the {section} section from the following doctor-patient dialogue:",
 }
 

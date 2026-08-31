@@ -115,14 +115,14 @@ def build_sft_config(args, n_train_rows: int) -> SFTConfig:
     if args.overfit:
         return SFTConfig( output_dir = args.output_dir ,max_steps = 100, per_device_train_batch_size= args.per_device_batch,
         gradient_accumulation_steps = 1, per_device_eval_batch_size= 1, max_length= 4608 ,
-        completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
+        completion_only_loss=True,learning_rate= 2e-4,lr_scheduler_type= "cosine",
         warmup_steps= 0, optim= args.optim, bf16= True, eval_strategy= "no",
         save_strategy= "no", load_best_model_at_end=False,
         logging_steps=5, report_to= "none", seed= SEED)
 
     return SFTConfig( output_dir = args.output_dir ,max_steps = max_step, per_device_train_batch_size= args.per_device_batch,
     gradient_accumulation_steps = args.grad_accum, per_device_eval_batch_size= 1, max_length= 4608 ,
-    completion_only_loss=True,train_sampling_strategy= "group_by_length",learning_rate= 2e-4,lr_scheduler_type= "cosine",
+    completion_only_loss=True,learning_rate= 2e-4,lr_scheduler_type= "cosine",
     warmup_steps= int(0.03 * max_step), optim= args.optim, bf16= True, eval_strategy= "steps", eval_steps= args.eval_steps,
     save_strategy= "steps", save_steps= args.eval_steps, save_total_limit= 2, load_best_model_at_end=True,
     # Selection on ACI, deliberately -- not an oversight of the ~8:1 imbalance.

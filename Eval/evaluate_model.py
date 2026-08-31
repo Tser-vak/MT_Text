@@ -115,7 +115,8 @@ def run_eval(model, processor, eval_name: str, fewshot_examples: list | None = N
     preds: list[str | None] = [None] * len(ds)
     refs = [ds[i]["reference"] for i in range(len(ds))]
 
-    for start in range(0, len(order), batch_size):
+    from tqdm import tqdm
+    for start in tqdm(range(0, len(order), batch_size), desc=f"Generating {eval_name}"):
         idx_batch = order[start:start + batch_size]
         rows = [ds[i] for i in idx_batch]
         outputs = generate_batch(model, processor, rows, fewshot_examples=fewshot_examples)
