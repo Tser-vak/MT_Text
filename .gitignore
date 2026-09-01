@@ -9,10 +9,14 @@ __pycache__/
 *.pyc
 venv/
 data_hand/venv/
+inference.py
+test_mod.py
+test_model.py
 
 # run outputs -- adapters are big, wandb/ is a local cache
 checkpoints/
 wandb/
+weights/
 
 #dev files 
 vision/
