@@ -17,6 +17,8 @@ test_model.py
 checkpoints/
 wandb/
 weights/
+hf_app/
+colab/
 
 #dev files 
 vision/
