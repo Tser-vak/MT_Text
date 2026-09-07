@@ -52,13 +52,13 @@ INSTRUCTION = {
 def build(family: str, row: pd.Series) -> list[dict[str, str]]:
 
     if family == "MTS":
-        preamble = INSTRUCTION[family].format(section = row.section_header)
+        preamble = INSTRUCTION[family].format(section=row.section_header, text=row.dialogue)
         target = row.section_text
+        content = preamble
     else:
         preamble = INSTRUCTION[family]
         target = row.note
-    # Joined text
-    content = preamble + "\n\n" + row.dialogue
+        content = preamble + "\n\n" + row.dialogue
 
     return [{"role": "user" , "content": content}, {"role": "assistant" , "content": target}]
 
