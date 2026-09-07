@@ -30,10 +30,22 @@ import pandas as pd
 # without it the dialogue->section_text mapping is ambiguous. Tune the wording;
 # the {section} slot for MTS is required.
 INSTRUCTION = {
-    "ACI": "Generate a clinical note from the following doctor-patient dialogue. "
-    "Do NOT invent or hallucinate physical examination findings "
-    "if they were not explicitly discussed in the dialogue.",
-    "MTS": "Summarize the {section} section from the following doctor-patient dialogue:",
+    "ACI": (
+        "You are an expert clinical scribe. Summarize the doctor-patient dialogue below into a clinical note. "
+        "Strict Grounding Rules:\n"
+        "- Record only facts, symptoms, medications, dosages, and exam findings explicitly spoken by either speaker.\n"
+        "- If a section or finding was not discussed, omit it entirely or state 'Not discussed'.\n"
+        "- Do not infer or extrapolate diagnoses.\n\n"
+        "Dialogue:\n{dialogue}\n\n"
+        "Clinical Note:"
+    ),
+    
+    "MTS": (
+        "You are an expert clinical scribe. Extract and format the {section} section strictly "
+        "using the information provided in the clinical transcription below.\n\n"
+        "Transcription:\n{text}\n\n"
+        "{section}:"
+    )
 }
 
 
