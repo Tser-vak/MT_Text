@@ -30,7 +30,7 @@ import pandas as pd
 from db_tools import prompts
 from Data_main import OUT_DIR
 
-ACI_POOL_FILES = ["aci_train.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv"]
+ACI_POOL_FILES = ["aci_train.csv", "aci_synth.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv"]
 MTS_TRAIN_FILE = "mts_train.csv"
 
 # Held-out eval/test splits, keyed by the logical name `load_eval` accepts.
@@ -164,5 +164,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
 
-    for p in (0.3, 0.4, 0.5,0.65, 0.75):
+    for p in (0.3, 0.36, 0.4, 0.5, 0.65, 0.75):
         repeat_report(p)

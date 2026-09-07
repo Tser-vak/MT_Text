@@ -144,7 +144,7 @@ def build_sft_config(args, n_train_rows: int) -> SFTConfig:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--p", type=float, default=0.4, help="ACI draw probability for the train mix (see splits.py)")
+    parser.add_argument("--p", type=float, default=0.5, help="ACI draw probability for the train mix (see splits.py); 0.5 = 50/50 with 689 ACI rows vs 1195 MTS rows")
     parser.add_argument("--output-dir", default="checkpoints/medgemma-qlora")
     parser.add_argument("--per-device-batch", type=int, default=2)
     parser.add_argument("--grad-accum", type=int, default=8)

@@ -22,6 +22,7 @@ SECTION_MAP_PATH = DB_DIR / "Norm_sec_head.txt"
 
 ACI_JOBS = [
     ("training/aci/train.csv", "aci_train.csv"),
+    ("training/aci/aci_synth.csv", "aci_synth.csv"),       # AI-generated synthetic data
     ("training/aci/clinicalnlp_taskB_test1.csv", "aci_taskB_test1.csv"),
     ("training/aci/clinicalnlp_taskC_test2.csv", "aci_taskC_test2.csv"),
     ("valid/aci/valid.csv", "aci_valid.csv"),
@@ -30,7 +31,7 @@ ACI_JOBS = [
 
 # Dedup sides for _dedup_aci: held-out splits are read-only, the train pool shrinks.
 ACI_KEEP_FILES = ("aci_test.csv", "aci_valid.csv")
-ACI_DROP_FILES = ("aci_train.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv")
+ACI_DROP_FILES = ("aci_train.csv", "aci_synth.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv")
 
 MTS_JOBS = [
     ("training/MTS/MTS-Dialog-TrainingSet.csv", "mts_train.csv"),

@@ -20,7 +20,7 @@ from Data_main import OUT_DIR
 
 MODEL_ID = "google/medgemma-4b-it"
 
-ACI_FILES = ["aci_train.csv", "aci_valid.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv", "aci_test.csv"]
+ACI_FILES = ["aci_train.csv", "aci_synth.csv", "aci_valid.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv", "aci_test.csv"]
 MTS_FILES = ["mts_train.csv", "mts_valid.csv", "mts_test1.csv", "mts_test2.csv"]
 
 

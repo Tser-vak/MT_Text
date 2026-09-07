@@ -15,6 +15,7 @@ from db_tools.dedup import TextDeduplicator
 
 EXPECTED_ROWS = {
     "aci_train.csv": 67,
+    "aci_synth.csv": 542,   # AI-generated; count may drop slightly after dedup vs held-out splits
     "aci_taskB_test1.csv": 40,
     "aci_taskC_test2.csv": 40,
     "aci_valid.csv": 20,
@@ -24,7 +25,7 @@ EXPECTED_ROWS = {
     "mts_test1.csv": 196,
     "mts_test2.csv": 198,
 }
-ACI_FILES = ["aci_train.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv", "aci_valid.csv", "aci_test.csv"]
+ACI_FILES = ["aci_train.csv", "aci_synth.csv", "aci_taskB_test1.csv", "aci_taskC_test2.csv", "aci_valid.csv", "aci_test.csv"]
 MTS_FILES = ["mts_train.csv", "mts_valid.csv", "mts_test1.csv", "mts_test2.csv"]
 
 
